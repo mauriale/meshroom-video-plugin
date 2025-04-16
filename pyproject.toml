@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meshroom_video_plugin"
+version = "0.1.0"
+description = "A plugin for Meshroom to process video files and generate 3D models"
+readme = "README.md"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+requires-python = ">=3.6"
+license = {text = "MIT"}
+dependencies = [
+    "opencv-python>=4.5.0",
+    "numpy>=1.19.0",
+]
+
+[project.scripts]
+meshroom-video = "meshroom_video_plugin:main"
