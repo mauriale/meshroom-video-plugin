@@ -7,7 +7,19 @@ import shutil
 import subprocess
 import re
 import time
+import json
 from pathlib import Path
+try:
+    import pyexiv2
+    HAVE_PYEXIV2 = True
+except ImportError:
+    HAVE_PYEXIV2 = False
+
+try:
+    import ffmpeg
+    HAVE_FFMPEG = True
+except ImportError:
+    HAVE_FFMPEG = False
 
 class MeshroomVideoPlugin:
     """
@@ -43,6 +55,21 @@ class MeshroomVideoPlugin:
         
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # Check for required dependencies
+        if not HAVE_PYEXIV2:
+            print("Warning: pyexiv2 library not found. Metadata extraction will be limited.")
+            print("To enable full metadata support, install pyexiv2: pip install pyexiv2")
+
+        if not HAVE_FFMPEG:
+            print("Warning: ffmpeg-python library not found. Some metadata extraction features will be limited.")
+            print("To enable full metadata support, install ffmpeg-python: pip install ffmpeg-python")
+
+        # Try to find exiftool for advanced metadata extraction
+        self.exiftool_path = self._find_exiftool_binary()
+        if not self.exiftool_path:
+            print("Warning: exiftool not found. Advanced metadata extraction will be limited.")
+            print("To enable full metadata support, install exiftool: https://exiftool.org/")
         
     def _find_meshroom_binary(self):
         """Find Meshroom binary in common locations"""
@@ -70,10 +97,220 @@ class MeshroomVideoPlugin:
         raise FileNotFoundError(
             "Meshroom binary not found. Please install Meshroom or provide the path to the binary."
         )
+
+    def _find_exiftool_binary(self):
+        """Find exiftool binary in common locations"""
+        # Common locations for exiftool binary
+        common_locations = [
+            "exiftool",  # If in PATH
+            r"C:\Program Files\exiftool\exiftool.exe",  # Windows
+            r"C:\exiftool\exiftool.exe",  # Windows common install location
+            "/usr/local/bin/exiftool",  # Linux
+            "/usr/bin/exiftool",  # Linux
+            "/opt/local/bin/exiftool",  # macOS Homebrew
+            "/opt/homebrew/bin/exiftool",  # macOS Homebrew on Apple Silicon
+        ]
+        
+        for location in common_locations:
+            try:
+                # Check if the binary exists and is executable
+                if os.path.isfile(location) and os.access(location, os.X_OK):
+                    return location
+                # Try to run the command
+                result = subprocess.run([location, "-ver"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if result.returncode == 0:
+                    return location
+            except (FileNotFoundError, PermissionError, subprocess.SubprocessError):
+                continue
+                
+        return None  # Return None if not found
+
+    def _extract_video_metadata(self):
+        """Extract metadata from video file"""
+        print(f"Extracting metadata from video file: {self.video_path}")
+        metadata = {}
+        
+        try:
+            # Method 1: Use ffmpeg if available
+            if HAVE_FFMPEG:
+                try:
+                    probe = ffmpeg.probe(self.video_path)
+                    metadata['ffmpeg'] = probe
+                    print(f"Successfully extracted ffmpeg metadata")
+                except Exception as e:
+                    print(f"Failed to extract ffmpeg metadata: {str(e)}")
+            
+            # Method 2: Use exiftool if available
+            if self.exiftool_path:
+                try:
+                    cmd = [self.exiftool_path, "-j", "-g", self.video_path]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        exif_data = json.loads(result.stdout)
+                        if exif_data and len(exif_data) > 0:
+                            metadata['exiftool'] = exif_data[0]
+                            print(f"Successfully extracted exiftool metadata")
+                except Exception as e:
+                    print(f"Failed to extract exiftool metadata: {str(e)}")
+            
+            # Method 3: Use OpenCV
+            try:
+                cap = cv2.VideoCapture(self.video_path)
+                metadata['opencv'] = {
+                    'fps': cap.get(cv2.CAP_PROP_FPS),
+                    'frame_count': int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+                    'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                    'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                }
+                cap.release()
+                print(f"Successfully extracted OpenCV metadata")
+            except Exception as e:
+                print(f"Failed to extract OpenCV metadata: {str(e)}")
+                
+            # Print summary of extracted metadata
+            gps_info = self._extract_gps_from_metadata(metadata)
+            if gps_info:
+                print(f"Found GPS information in video: {gps_info}")
+            else:
+                print("No GPS information found in video metadata")
+                
+            return metadata
+            
+        except Exception as e:
+            print(f"Warning: Failed to extract metadata from video: {str(e)}")
+            return {}
+            
+    def _extract_gps_from_metadata(self, metadata):
+        """Extract GPS information from metadata"""
+        gps_info = {}
+        
+        # Try exiftool metadata first
+        if 'exiftool' in metadata:
+            exif = metadata['exiftool']
+            
+            # GPS data could be in different tags depending on video format
+            if 'GPS' in exif:
+                gps = exif['GPS']
+                if 'GPSLatitude' in gps and 'GPSLongitude' in gps:
+                    gps_info['latitude'] = gps['GPSLatitude']
+                    gps_info['longitude'] = gps['GPSLongitude']
+                    if 'GPSAltitude' in gps:
+                        gps_info['altitude'] = gps['GPSAltitude']
+            
+            # Try composite data
+            elif 'Composite' in exif:
+                comp = exif['Composite']
+                if 'GPSLatitude' in comp and 'GPSLongitude' in comp:
+                    gps_info['latitude'] = comp['GPSLatitude']
+                    gps_info['longitude'] = comp['GPSLongitude']
+                    if 'GPSAltitude' in comp:
+                        gps_info['altitude'] = comp['GPSAltitude']
+                        
+            # Try QuickTime metadata (for drone videos often)
+            elif 'QuickTime' in exif:
+                qt = exif['QuickTime']
+                if 'GPSCoordinates' in qt:
+                    coords = qt['GPSCoordinates']
+                    if isinstance(coords, str):
+                        # Format could be "lat, long, alt"
+                        parts = coords.split(',')
+                        if len(parts) >= 2:
+                            gps_info['latitude'] = parts[0].strip()
+                            gps_info['longitude'] = parts[1].strip()
+                            if len(parts) >= 3:
+                                gps_info['altitude'] = parts[2].strip()
+        
+        # Try ffmpeg metadata if available
+        if not gps_info and 'ffmpeg' in metadata:
+            probe = metadata['ffmpeg']
+            if 'format' in probe and 'tags' in probe['format']:
+                tags = probe['format']['tags']
+                
+                # Look for various GPS tag formats
+                for key in tags:
+                    if 'gps' in key.lower() or 'location' in key.lower():
+                        gps_info['raw'] = tags[key]
+                
+                # Explicit checks for common tag names
+                if 'location' in tags:
+                    gps_info['raw_location'] = tags['location']
+                    
+                if 'com.apple.quicktime.location.ISO6709' in tags:
+                    gps_info['apple_location'] = tags['com.apple.quicktime.location.ISO6709']
+        
+        return gps_info
+    
+    def _apply_metadata_to_image(self, image_path, frame_num, video_metadata, timestamp=None):
+        """Apply video metadata to extracted image file"""
+        if not HAVE_PYEXIV2:
+            return False
+            
+        try:
+            gps_info = self._extract_gps_from_metadata(video_metadata)
+            if not gps_info:
+                return False
+                
+            # Open the image for metadata editing
+            img = pyexiv2.Image(image_path)
+            
+            # Create XMP metadata if needed
+            xmp_metadata = {}
+            
+            # Add basic metadata
+            xmp_metadata['Xmp.xmp.CreateDate'] = timestamp.isoformat() if timestamp else time.strftime("%Y-%m-%dT%H:%M:%S")
+            xmp_metadata['Xmp.xmp.CreatorTool'] = "Meshroom Video Plugin"
+            
+            # Add GPS metadata if available
+            if 'latitude' in gps_info and 'longitude' in gps_info:
+                try:
+                    # Convert latitude and longitude to the format required by Exiv2
+                    latitude = float(gps_info['latitude'])
+                    longitude = float(gps_info['longitude'])
+                    
+                    # EXIF GPS metadata
+                    img.modify_exif({
+                        'Exif.GPSInfo.GPSLatitudeRef': 'N' if latitude >= 0 else 'S',
+                        'Exif.GPSInfo.GPSLatitude': abs(latitude),
+                        'Exif.GPSInfo.GPSLongitudeRef': 'E' if longitude >= 0 else 'W',
+                        'Exif.GPSInfo.GPSLongitude': abs(longitude),
+                    })
+                    
+                    # XMP GPS metadata
+                    xmp_metadata['Xmp.exif.GPSLatitude'] = abs(latitude)
+                    xmp_metadata['Xmp.exif.GPSLongitude'] = abs(longitude)
+                    
+                    # Add altitude if available
+                    if 'altitude' in gps_info:
+                        try:
+                            altitude = float(gps_info['altitude'])
+                            img.modify_exif({
+                                'Exif.GPSInfo.GPSAltitudeRef': '0' if altitude >= 0 else '1',
+                                'Exif.GPSInfo.GPSAltitude': abs(altitude),
+                            })
+                            xmp_metadata['Xmp.exif.GPSAltitude'] = abs(altitude)
+                        except (ValueError, TypeError):
+                            pass
+                except (ValueError, TypeError) as e:
+                    print(f"Warning: Could not convert GPS coordinates to float: {str(e)}")
+            
+            # Apply XMP metadata
+            if xmp_metadata:
+                img.modify_xmp(xmp_metadata)
+                
+            # Close the image to save changes
+            img.close()
+            return True
+            
+        except Exception as e:
+            print(f"Warning: Failed to apply metadata to image: {str(e)}")
+            return False
     
     def extract_frames(self):
         """Extract frames from the video file"""
         print(f"Extracting frames from {self.video_path}...")
+        
+        # Extract metadata from video
+        video_metadata = self._extract_video_metadata()
         
         # Open the video file
         video = cv2.VideoCapture(self.video_path)
@@ -102,15 +339,23 @@ class MeshroomVideoPlugin:
                 break
                 
             if count % self.frame_interval == 0:
+                # Calculate timestamp for this frame
+                timestamp = time.time() - ((frame_count - count) / fps) if fps > 0 else None
+                
                 # Save frame as a JPG file
                 frame_path = os.path.join(self.temp_frames_dir, f"frame_{extracted:06d}.jpg")
                 cv2.imwrite(frame_path, frame)
+                
+                # Apply metadata to the saved image
+                metadata_applied = self._apply_metadata_to_image(frame_path, extracted, video_metadata, timestamp)
+                
                 extracted += 1
                 
                 # Print progress every 10 frames or when it's a multiple of 10%
                 if extracted % 10 == 0 or (frames_to_extract > 0 and extracted * 100 // frames_to_extract % 10 == 0):
                     percent = (extracted * 100) // frames_to_extract if frames_to_extract > 0 else 0
-                    print(f"[{percent}%] Extracted {extracted} frames...")
+                    meta_status = "with metadata" if metadata_applied else "without metadata"
+                    print(f"[{percent}%] Extracted {extracted} frames {meta_status}...")
                     
             count += 1
             
@@ -354,6 +599,8 @@ def main():
     parser.add_argument("--quality", choices=["low", "medium", "high"], default="high",
                         help="Quality setting for 3D model (default: high)")
     parser.add_argument("--meshroom-bin", help="Path to Meshroom binary")
+    parser.add_argument("--keep-metadata", action="store_true", 
+                        help="Preserve metadata from video in extracted frames (requires pyexiv2)")
     
     args = parser.parse_args()
     
