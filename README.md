@@ -29,16 +29,18 @@ git clone https://github.com/mauriale/meshroom-video-plugin.git
 cd meshroom-video-plugin
 ```
 
-### Step 2: Install Dependencies
+### Step 2: Install the Plugin
+
+Using pip (recommended):
 
 ```bash
-pip install -r requirements.txt
+pip install .
 ```
 
-### Step 3: Install the Plugin
+Or for development:
 
 ```bash
-python setup.py install
+pip install -e .
 ```
 
 ## Usage
@@ -54,7 +56,7 @@ meshroom-video your_video.mp4 output_directory
 Or if you haven't installed it:
 
 ```bash
-python -m meshroom_video_plugin your_video.mp4 output_directory
+python -m meshroom_video_plugin.meshroom_video_plugin your_video.mp4 output_directory
 ```
 
 ### Command Line Options
@@ -147,6 +149,9 @@ However, to make it work seamlessly with Meshroom:
 
 - **Failed Reconstruction**:
   Solution: Ensure your video has good lighting, minimal motion blur, and captures the subject from multiple angles
+
+- **Installation Errors**:
+  If you encounter `setup.py install is deprecated` warnings or other installation errors, try using `pip install .` instead.
 
 ## Example Workflow
 
