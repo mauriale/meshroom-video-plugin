@@ -8,6 +8,7 @@ import subprocess
 import re
 import time
 import json
+import datetime
 from pathlib import Path
 try:
     import pyexiv2
@@ -257,15 +258,63 @@ class MeshroomVideoPlugin:
             xmp_metadata = {}
             
             # Add basic metadata
-            xmp_metadata['Xmp.xmp.CreateDate'] = timestamp.isoformat() if timestamp else time.strftime("%Y-%m-%dT%H:%M:%S")
+            # Ensure timestamp is a datetime object, not a float
+            if timestamp is not None:
+                if isinstance(timestamp, float):
+                    # Convert timestamp float to datetime
+                    current_time = datetime.datetime.fromtimestamp(timestamp)
+                else:
+                    current_time = timestamp
+            else:
+                current_time = datetime.datetime.now()
+                
+            xmp_metadata['Xmp.xmp.CreateDate'] = current_time.strftime("%Y-%m-%dT%H:%M:%S")
             xmp_metadata['Xmp.xmp.CreatorTool'] = "Meshroom Video Plugin"
             
             # Add GPS metadata if available
             if 'latitude' in gps_info and 'longitude' in gps_info:
                 try:
-                    # Convert latitude and longitude to the format required by Exiv2
-                    latitude = float(gps_info['latitude'])
-                    longitude = float(gps_info['longitude'])
+                    # Handle different formats of GPS coordinates
+                    lat_str = str(gps_info['latitude'])
+                    lon_str = str(gps_info['longitude'])
+                    
+                    # Try to convert to decimal degrees
+                    try:
+                        # Check if it's already a decimal number
+                        latitude = float(lat_str)
+                        longitude = float(lon_str)
+                    except ValueError:
+                        # Try to parse formats like "43 deg 47' 40.56" N"
+                        if 'deg' in lat_str and "'" in lat_str:
+                            # Parse DMS format
+                            lat_parts = lat_str.split('deg')
+                            lat_deg = float(lat_parts[0].strip())
+                            lat_rest = lat_parts[1].strip().split("'")
+                            lat_min = float(lat_rest[0].strip())
+                            lat_sec_parts = lat_rest[1].strip().split('"')
+                            lat_sec = float(lat_sec_parts[0].strip())
+                            lat_dir = lat_sec_parts[1].strip()
+                            
+                            latitude = lat_deg + (lat_min / 60) + (lat_sec / 3600)
+                            if lat_dir == 'S':
+                                latitude = -latitude
+                                
+                            # Same for longitude
+                            lon_parts = lon_str.split('deg')
+                            lon_deg = float(lon_parts[0].strip())
+                            lon_rest = lon_parts[1].strip().split("'")
+                            lon_min = float(lon_rest[0].strip())
+                            lon_sec_parts = lon_rest[1].strip().split('"')
+                            lon_sec = float(lon_sec_parts[0].strip())
+                            lon_dir = lon_sec_parts[1].strip()
+                            
+                            longitude = lon_deg + (lon_min / 60) + (lon_sec / 3600)
+                            if lon_dir == 'W':
+                                longitude = -longitude
+                        else:
+                            # If we can't parse, just use placeholder values
+                            print(f"Warning: Could not parse GPS coordinates: {lat_str}, {lon_str}")
+                            return False
                     
                     # EXIF GPS metadata
                     img.modify_exif({
@@ -333,6 +382,7 @@ class MeshroomVideoPlugin:
         # Extract frames
         count = 0
         extracted = 0
+        start_time = time.time()
         while True:
             success, frame = video.read()
             if not success:
@@ -340,7 +390,9 @@ class MeshroomVideoPlugin:
                 
             if count % self.frame_interval == 0:
                 # Calculate timestamp for this frame
-                timestamp = time.time() - ((frame_count - count) / fps) if fps > 0 else None
+                frame_time = count / fps if fps > 0 else 0
+                # Create a proper datetime object
+                timestamp = datetime.datetime.fromtimestamp(start_time - (frame_count - count) / fps if fps > 0 else start_time)
                 
                 # Save frame as a JPG file
                 frame_path = os.path.join(self.temp_frames_dir, f"frame_{extracted:06d}.jpg")
