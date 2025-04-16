@@ -18,10 +18,5 @@ setup(
     description="A plugin for Meshroom to process video files and generate 3D models",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
     python_requires=">=3.6",
 )
