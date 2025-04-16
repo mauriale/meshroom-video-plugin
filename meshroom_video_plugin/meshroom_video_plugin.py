@@ -47,10 +47,11 @@ class MeshroomVideoPlugin:
         # Common locations for Meshroom binary
         common_locations = [
             "meshroom",  # If in PATH
-            r"C:\Program Files\Meshroom\meshroom_batch.exe",  # Windows
-            r"C:\Program Files (x86)\Meshroom\meshroom_batch.exe",  # Windows 32-bit
-            "/usr/local/bin/meshroom_batch",  # Linux
-            "/Applications/Meshroom.app/Contents/MacOS/meshroom_batch"  # macOS
+            r"C:\Program Files\Meshroom\meshroom.exe",  # Windows
+            r"C:\Program Files (x86)\Meshroom\meshroom.exe",  # Windows 32-bit
+            r"C:\Program Files\AliceVision\Meshroom\meshroom.exe",  # Windows AliceVision
+            "/usr/local/bin/meshroom",  # Linux
+            "/Applications/Meshroom.app/Contents/MacOS/meshroom"  # macOS
         ]
         
         for location in common_locations:
@@ -120,20 +121,23 @@ class MeshroomVideoPlugin:
         """Run Meshroom on the extracted frames"""
         print(f"Running Meshroom on extracted frames...")
         
-        # Construct the command
+        # Get output project path
+        output_project = os.path.join(self.output_dir, "project.mg")
+        
+        # Construct the command based on Meshroom CLI
         cmd = [
             self.meshroom_bin,
-            "--input", self.temp_frames_dir,
-            "--output", self.output_dir
+            "-i", self.temp_frames_dir,  # Import images
+            "-s", output_project         # Save project
         ]
         
-        # Add quality settings
+        # Add pipeline/quality settings
         if self.quality == 'low':
-            cmd.extend(["--preset", "low"])
+            cmd.extend(["-p", "photogrammetryDraft"])
         elif self.quality == 'medium':
-            cmd.extend(["--preset", "medium"])
+            cmd.extend(["-p", "photogrammetry"])
         else:  # high
-            cmd.extend(["--preset", "high"])
+            cmd.extend(["-p", "photogrammetryAndCameraTracking"])
             
         # Run Meshroom
         print(f"Running command: {' '.join(cmd)}")
@@ -178,15 +182,26 @@ class MeshroomVideoPlugin:
             # Run Meshroom
             self.run_meshroom()
             
-            # Final output path
-            output_path = os.path.join(self.output_dir, "texturedMesh.obj")
+            # Final output paths to check
+            possible_outputs = [
+                os.path.join(self.output_dir, "texturedMesh.obj"),
+                os.path.join(self.output_dir, "meshes", "texturedMesh.obj"),
+                os.path.join(self.output_dir, "project.mg")  # At minimum, project file should exist
+            ]
             
-            if os.path.exists(output_path):
-                print(f"3D model successfully generated: {output_path}")
+            # Find the first existing output file
+            output_path = None
+            for path in possible_outputs:
+                if os.path.exists(path):
+                    output_path = path
+                    break
+            
+            if output_path:
+                print(f"Meshroom project/model generated: {output_path}")
                 print(f"Output directory: {self.output_dir}")
                 return output_path
             else:
-                print("Warning: 3D model file not found at expected location.")
+                print("Warning: Expected output files not found at expected locations.")
                 print(f"Check output directory: {self.output_dir}")
                 return self.output_dir
                 
