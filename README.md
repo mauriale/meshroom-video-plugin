@@ -1,119 +1,117 @@
 # Meshroom Video Plugin
 
-A plugin that allows Meshroom to process video files and generate 3D models through photogrammetry.
+Plugin para Meshroom que permite procesar videos y extraer frames para reconstrucción 3D. Extrae fotogramas de videos mientras preserva metadatos GPS/EXIF para una reconstrucción más precisa.
 
-## How It Works
+## Características
 
-This plugin works by extracting frames from a video file at specified intervals and then feeding those frames into Meshroom's photogrammetry pipeline. Meshroom typically requires individual images as input, and this plugin bridges the gap between video files and Meshroom's image-based workflow.
+- Extracción de frames de video con FFmpeg o OpenCV
+- Preservación de metadatos GPS/EXIF para cada frame
+- Detección de fotogramas borrosos (blur) para mejorar la calidad
+- Rotación automática o manual (0, 90, 180, 270 grados)
+- Extracción desde tiempos específicos del video
+- Modo verbose para seguimiento detallado del proceso
 
-### Process Flow
+## Requisitos
 
-1. **Frame Extraction**: The plugin uses OpenCV to read the video file and extract frames at regular intervals.
-2. **Metadata Preservation**: GPS and other metadata from the video file are extracted and transferred to each image.
-3. **Temporary Storage**: Extracted frames are saved to a temporary directory.
-4. **Meshroom Processing**: The plugin calls Meshroom's command-line interface to process the extracted frames.
-5. **3D Model Generation**: Meshroom processes the frames through its photogrammetry pipeline to generate a 3D model.
-6. **Cleanup**: Temporary files are removed after processing.
+- [Meshroom](https://github.com/alicevision/meshroom)
+- [FFmpeg](https://ffmpeg.org/) (opcional pero recomendado)
+- [ExifTool](https://exiftool.org/) (opcional para extracción de metadatos)
+- Python 3.6+
+- OpenCV (se instala automáticamente)
 
-## Installation
+## Instalación
 
-### Prerequisites
+```bash
+pip install git+https://github.com/mauriale/meshroom-video-plugin.git
+```
 
-- Python 3.6 or higher
-- OpenCV (`pip install opencv-python`)
-- Meshroom (must be installed separately)
-- For GPS/metadata extraction (optional but recommended):
-  - pyexiv2 (`pip install pyexiv2`)
-  - ffmpeg-python (`pip install ffmpeg-python`)
-  - exiftool (download from [exiftool.org](https://exiftool.org/))
-
-### Step 1: Clone the Repository
+O clonando el repositorio:
 
 ```bash
 git clone https://github.com/mauriale/meshroom-video-plugin.git
 cd meshroom-video-plugin
-```
-
-### Step 2: Install the Plugin
-
-Using pip (recommended):
-
-```bash
-pip install .
-```
-
-Or for development:
-
-```bash
 pip install -e .
 ```
 
-## Usage
+## Uso
 
-### Command Line Interface
-
-After installation, you can use the plugin directly from the command line:
+### Línea de comandos básica
 
 ```bash
-meshroom-video your_video.mp4 output_directory
+meshroom-video video.mp4 --output ./modelo_3d
 ```
 
-Or if you haven't installed it:
+### Opciones disponibles
+
+```
+--output, -o        Directorio de salida para los frames extraídos
+--frame-interval, -f Frames por segundo a extraer (por defecto: 15)
+--rotate, -r        Rotar frames (opciones: 0, 90, 180, 270, 'auto')
+--verbose, -v       Mostrar información detallada sobre el progreso
+--extract-metadata, -e Extraer metadatos GPS/EXIF y aplicarlos a los frames
+--quality, -q       Calidad del procesamiento ('low', 'medium', 'high')
+--start, -s         Tiempo de inicio para la extracción (formato: HH:MM:SS)
+--duration, -d      Duración del segmento a extraer (formato: HH:MM:SS)
+--detect-blur, -b   Activar detección de fotogramas borrosos
+--blur-threshold, -t Umbral para detección de blur (default: 100.0)
+--meshroom-bin, -m  Ruta al ejecutable de Meshroom
+```
+
+## Ejemplos
+
+### Extracción básica
 
 ```bash
-python -m meshroom_video_plugin.meshroom_video_plugin your_video.mp4 output_directory
+meshroom-video video.mp4
 ```
 
-### Command Line Options
-
-```
-meshroom-video VIDEO_PATH OUTPUT_DIR [--frame-interval N] [--quality QUALITY] [--meshroom-bin PATH]
-```
-
-- `VIDEO_PATH`: Path to the input video file
-- `OUTPUT_DIR`: Directory where the 3D model will be saved
-- `--frame-interval`: Extract a frame every N frames (default: 15)
-- `--quality`: Quality setting ('low', 'medium', 'high', default: 'high')
-- `--meshroom-bin`: Path to Meshroom binary (optional if in PATH)
-
-### Example
+### Extracción con metadatos y rotación
 
 ```bash
-meshroom-video my_drone_footage.mp4 3d_model_output --frame-interval 30 --quality medium
+meshroom-video video.mp4 --output ./frames --rotate 90 --extract-metadata --verbose
 ```
 
-## GPS and Metadata Support
+### Extraer frames de alta calidad evitando fotogramas borrosos
 
-For drone videos and other footage with geolocation data, the plugin will:
+```bash
+meshroom-video video.mp4 --detect-blur --blur-threshold 150 --frame-interval 30
+```
 
-1. Extract GPS coordinates, altitude, and other metadata from the video
-2. Apply this data to each extracted frame
-3. Allow Meshroom to use these coordinates for more accurate 3D reconstruction
+### Extraer frames desde un tiempo específico
 
-This feature requires:
-- `pyexiv2` library
-- `ffmpeg-python` library
-- `exiftool` (optional, but provides more accurate metadata extraction)
+```bash
+meshroom-video video.mp4 --start 00:02:00 --duration 00:00:30
+```
 
-## Troubleshooting
+## Integración con Meshroom
 
-### Common Issues
+Los frames extraídos se procesan automáticamente con Meshroom para generar el modelo 3D. Si se ha utilizado la opción `--extract-metadata`, Meshroom podrá aprovechar la información GPS/EXIF para mejorar la reconstrucción.
 
-- **Meshroom Not Found**: 
-  ```
-  Error: Meshroom binary not found
-  ```
-  Solution: Install Meshroom or specify the path with `--meshroom-bin`
+## Flujo de Proceso
 
-- **Metadata Libraries Missing**:
-  ```
-  Warning: pyexiv2 library not found. Metadata extraction will be limited.
-  ```
-  Solution: Install required dependencies with `pip install pyexiv2 ffmpeg-python`
+1. **Análisis de Video**: El plugin analiza el archivo de video para determinar información como resolución y rotación.
+2. **Extracción de Fotogramas**: Se extraen fotogramas utilizando FFmpeg (preferido) o OpenCV, preservando la calidad visual.
+3. **Detección de Blur**: Si está activado, se analizan los fotogramas para evitar usar imágenes borrosas.
+4. **Procesamiento de Metadatos**: 
+   - Se extraen datos GPS, EXIF y timestamps del video
+   - Se aplican estos metadatos a cada fotograma extraído
+5. **Procesamiento en Meshroom**: El plugin llama a Meshroom con los fotogramas preparados
+6. **Generación del Modelo 3D**: Meshroom completa el procesamiento de fotogrametría
+7. **Limpieza**: Se eliminan los archivos temporales después del procesamiento
 
-- **Long Processing Time**:
-  Solution: Use 'low' or 'medium' quality settings, or extract fewer frames with higher `--frame-interval`
+## Solución de Problemas
 
-## License
+Si encuentras errores:
 
-MIT License
+1. Asegúrate de que FFmpeg y ExifTool estén instalados y en tu PATH
+2. Verifica que Meshroom esté instalado correctamente
+3. Para videos de alta resolución, considera usar `--frame-interval` más alto
+4. Con la opción `--verbose` puedes obtener más información sobre los errores
+
+## Contribuir
+
+Las contribuciones son bienvenidas. Por favor, abre un issue para discutir cambios importantes antes de enviar un pull request.
+
+## Licencia
+
+MIT
