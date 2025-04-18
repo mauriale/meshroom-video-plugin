@@ -1,3 +1,1 @@
-from .meshroom_video_plugin import MeshroomVideoPlugin, main
-
-__version__ = "0.1.0"
+@LOCALF://C:/Users/mauri/Desktop/meshroom-video-plugin/meshroom_video_plugin/__init__.py

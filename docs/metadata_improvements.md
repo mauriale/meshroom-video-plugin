@@ -1,0 +1,1 @@
+@LOCALF://C:/Users/mauri/Desktop/meshroom-video-plugin/docs/metadata_improvements.md
